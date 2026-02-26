@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ICM20948 · 3D Flight Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
+  canvas { display: block; }
+
+  /* ── HUD ── */
+  #hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    color: #7fff7f;
+    font-size: 13px;
+  }
+
+  /* Roll/pitch readouts */
+  #top-bar {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 2px;
+  }
+  .hud-box {
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(100,255,100,0.3);
+    padding: 5px 14px;
+    text-align: center;
+    min-width: 90px;
+  }
+  .hud-box .label { font-size: 10px; opacity: 0.5; letter-spacing: 2px; display: block; }
+  .hud-box .val   { font-size: 20px; letter-spacing: 1px; }
+
+  /* Side readouts */
+  #left-bar {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  #right-bar {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  /* Crosshair */
+  #crosshair {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+  }
+  #crosshair::before, #crosshair::after {
+    content: '';
+    position: absolute;
+    background: rgba(100,255,100,0.7);
+  }
+  #crosshair::before { width: 1px; height: 100%; left: 50%; top: 0; }
+  #crosshair::after  { width: 100%; height: 1px; top: 50%; left: 0; }
+  .ch-gap {
+    position: absolute;
+    background: #000;
+    inset: 40% 40%;
+  }
+
+  /* Bottom strip */
+  #bottom-bar {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 2px;
+  }
+
+  /* ── CONNECT OVERLAY ── */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.82);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    z-index: 50;
+    color: #7fff7f;
+  }
+  #overlay h1 {
+    font-size: 28px;
+    letter-spacing: 6px;
+    font-weight: normal;
+    border-bottom: 1px solid rgba(100,255,100,0.3);
+    padding-bottom: 12px;
+  }
+  #overlay p {
+    font-size: 12px;
+    opacity: 0.5;
+    letter-spacing: 1px;
+    text-align: center;
+    line-height: 2;
+  }
+  .btn {
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    letter-spacing: 4px;
+    padding: 10px 30px;
+    background: transparent;
+    border: 1px solid #7fff7f;
+    color: #7fff7f;
+    cursor: pointer;
+    transition: background 0.15s;
+    pointer-events: all;
+  }
+  .btn:hover { background: rgba(100,255,100,0.1); }
+  .btn.amber { border-color: #ffb347; color: #ffb347; }
+  .btn.amber:hover { background: rgba(255,179,71,0.1); }
+  #status { font-size: 11px; opacity: 0.6; letter-spacing: 2px; min-height: 16px; }
+  #demo-tag {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: #ffb347;
+    border: 1px solid rgba(255,179,71,0.4);
+    padding: 4px 8px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- THREE.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="top-bar">
+    <div class="hud-box">
+      <span class="label">ROLL</span>
+      <span class="val" id="v-roll">0.0°</span>
+    </div>
+    <div class="hud-box">
+      <span class="label">PITCH</span>
+      <span class="val" id="v-pitch">0.0°</span>
+    </div>
+    <div class="hud-box">
+      <span class="label">HEADING</span>
+      <span class="val" id="v-hdg">000°</span>
+    </div>
+  </div>
+
+  <div id="left-bar">
+    <div class="hud-box" style="min-width:70px">
+      <span class="label">AX</span>
+      <span class="val" id="v-ax">0.00</span>
+    </div>
+    <div class="hud-box" style="min-width:70px">
+      <span class="label">AY</span>
+      <span class="val" id="v-ay">0.00</span>
+    </div>
+    <div class="hud-box" style="min-width:70px">
+      <span class="label">AZ</span>
+      <span class="val" id="v-az">9.81</span>
+    </div>
+  </div>
+
+  <div id="right-bar">
+    <div class="hud-box" style="min-width:70px">
+      <span class="label">GX</span>
+      <span class="val" id="v-gx">0.000</span>
+    </div>
+    <div class="hud-box" style="min-width:70px">
+      <span class="label">GY</span>
+      <span class="val" id="v-gy">0.000</span>
+    </div>
+    <div class="hud-box" style="min-width:70px">
+      <span class="label">GZ</span>
+      <span class="val" id="v-gz">0.000</span>
+    </div>
+  </div>
+
+  <div id="crosshair"><div class="ch-gap"></div></div>
+
+  <div id="bottom-bar">
+    <div class="hud-box">
+      <span class="label">TEMP</span>
+      <span class="val" id="v-temp">--°C</span>
+    </div>
+    <div class="hud-box">
+      <span class="label">|ACCEL|</span>
+      <span class="val" id="v-g">9.81</span>
+    </div>
+    <div class="hud-box">
+      <span class="label">MAG X</span>
+      <span class="val" id="v-mx">---</span>
+    </div>
+  </div>
+</div>
+
+<div id="demo-tag">DEMO MODE</div>
+
+<!-- OVERLAY -->
+<div id="overlay">
+  <h1>ICM20948 · 3D FLIGHT SIM</h1>
+  <p>
+    Upload ICM20948_FlightSim.ino to your Arduino Nano.<br>
+    Open this page in Chrome or Edge for Web Serial.<br>
+    Tilt the sensor — the aircraft follows.
+  </p>
+  <button class="btn" onclick="connectSerial()">CONNECT ARDUINO</button>
+  <button class="btn amber" onclick="startDemo()">DEMO MODE</button>
+  <div id="status"></div>
+</div>
+
+<script>
+// ════════════════════════════════════════
+//  THREE.JS SCENE
+// ════════════════════════════════════════
+const scene    = new THREE.Scene();
+const camera   = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 5000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// Resize
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ── Sky (gradient via fog + background) ──
+scene.background = new THREE.Color(0x87ceeb);
+scene.fog = new THREE.Fog(0xc8e8f8, 800, 3000);
+
+// ── Sun / directional light ──
+const sun = new THREE.DirectionalLight(0xfff8e8, 1.2);
+sun.position.set(300, 500, -200);
+sun.castShadow = true;
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x8899bb, 0.6));
+
+// ── Ground plane ──
+const groundGeo = new THREE.PlaneGeometry(6000, 6000, 60, 60);
+const groundMat = new THREE.MeshLambertMaterial({ color: 0x4a7a30 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -300;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid on ground
+const gridHelper = new THREE.GridHelper(6000, 80, 0x3a6a20, 0x3a6a20);
+gridHelper.position.y = -299;
+gridHelper.material.opacity = 0.3;
+gridHelper.material.transparent = true;
+scene.add(gridHelper);
+
+// ── Runway ──
+const runwayGeo = new THREE.PlaneGeometry(40, 600);
+const runwayMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
+const runway = new THREE.Mesh(runwayGeo, runwayMat);
+runway.rotation.x = -Math.PI / 2;
+runway.position.set(0, -298, 200);
+scene.add(runway);
+
+// Runway center line dashes
+for (let i = -5; i <= 5; i++) {
+  const dashGeo = new THREE.PlaneGeometry(2, 20);
+  const dashMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const dash = new THREE.Mesh(dashGeo, dashMat);
+  dash.rotation.x = -Math.PI / 2;
+  dash.position.set(0, -297.5, 200 + i * 50);
+  scene.add(dash);
+}
+
+// ── Simple clouds (white boxes, far away) ──
+function makeCloud(x, y, z) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  [[0,0,0,3,1.2,2],[1.8,0.4,0,2,1,1.5],[-1.6,0.3,0,2.2,1,1.5],[0,0.7,0,2,0.8,1.5]].forEach(([px,py,pz,sx,sy,sz]) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx*30, sy*20, sz*25), mat);
+    m.position.set(px*25, py*18, pz*20);
+    g.add(m);
+  });
+  g.position.set(x, y, z);
+  return g;
+}
+const cloudPositions = [
+  [-400, 80, -300], [200, 100, -500], [-100, 120, -800],
+  [600, 90, -400],  [-600, 110, -600],[300, 70, -200],
+  [-300, 130, -1000],[800, 100, -700],[-800, 80, -400],
+];
+cloudPositions.forEach(([x,y,z]) => scene.add(makeCloud(x,y,z)));
+
+// ── Mountains in background ──
+function makeMountain(x, z, h, w) {
+  const geo = new THREE.ConeGeometry(w, h, 6);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x7a8a6a });
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, -300 + h/2, z);
+  return m;
+}
+[[-1200,100,-1800,300,400],[800,-1600,250,350],[-600,-2000,350,400],
+ [1500,-1400,200,280],[0,-2200,400,500]].forEach(([x,z,h,w]) => scene.add(makeMountain(x,z,h,w)));
+
+// ── AIRCRAFT (plain geometry) ──
+const aircraft = new THREE.Group();
+
+const fusMat  = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+const wingMat = new THREE.MeshLambertMaterial({ color: 0xcccccc });
+const darkMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+const redMat  = new THREE.MeshLambertMaterial({ color: 0xcc2222 });
+const greenMat= new THREE.MeshLambertMaterial({ color: 0x22cc22 });
+
+// Fuselage — use CylinderGeometry (compatible with r128)
+const fusGeo = new THREE.CylinderGeometry(0.5, 0.8, 12, 8);
+const fuselage = new THREE.Mesh(fusGeo, fusMat);
+fuselage.rotation.z = Math.PI / 2;
+fuselage.castShadow = true;
+aircraft.add(fuselage);
+
+// Nose cone
+const noseGeo = new THREE.CylinderGeometry(0, 0.5, 3, 8);
+const nose = new THREE.Mesh(noseGeo, fusMat);
+nose.rotation.z = Math.PI / 2;
+nose.position.x = 7.5;
+aircraft.add(nose);
+
+// Main wings (flat boxes)
+const wingGeo = new THREE.BoxGeometry(4, 0.15, 18);
+const wings = new THREE.Mesh(wingGeo, wingMat);
+wings.position.x = -1;
+wings.castShadow = true;
+aircraft.add(wings);
+
+// Wing taper — leading edge wedge effect via scaled boxes
+const lwingGeo = new THREE.BoxGeometry(2, 0.12, 8);
+const lwing = new THREE.Mesh(lwingGeo, wingMat);
+lwing.position.set(-1, 0, -12);
+aircraft.add(lwing);
+const rwing = new THREE.Mesh(lwingGeo, wingMat);
+rwing.position.set(-1, 0, 12);
+aircraft.add(rwing);
+
+// Horizontal stabilizer
+const stabGeo = new THREE.BoxGeometry(2.5, 0.12, 8);
+const stab = new THREE.Mesh(stabGeo, wingMat);
+stab.position.set(-5.5, 0, 0);
+aircraft.add(stab);
+
+// Vertical stabilizer
+const vstabGeo = new THREE.BoxGeometry(2.5, 2.5, 0.15);
+const vstab = new THREE.Mesh(vstabGeo, wingMat);
+vstab.position.set(-5.5, 1.2, 0);
+aircraft.add(vstab);
+
+// Cockpit (dark box)
+const cockpitGeo = new THREE.BoxGeometry(2, 0.6, 1.2);
+const cockpit = new THREE.Mesh(cockpitGeo, darkMat);
+cockpit.position.set(3.5, 0.7, 0);
+aircraft.add(cockpit);
+
+// Engine pods
+[-3.5, 3.5].forEach(z => {
+  const engGeo = new THREE.CylinderGeometry(0.4, 0.35, 3, 8);
+  const eng = new THREE.Mesh(engGeo, darkMat);
+  eng.rotation.z = Math.PI/2;
+  eng.position.set(-0.5, -0.5, z);
+  aircraft.add(eng);
+});
+
+// Nav lights
+const leftLight = new THREE.Mesh(new THREE.BoxGeometry(0.3,0.3,0.3), redMat);
+leftLight.position.set(-1, 0, -9.5);
+aircraft.add(leftLight);
+const rightLight = new THREE.Mesh(new THREE.BoxGeometry(0.3,0.3,0.3), greenMat);
+rightLight.position.set(-1, 0, 9.5);
+aircraft.add(rightLight);
+
+aircraft.position.set(0, 0, 0);
+scene.add(aircraft);
+
+// ── Camera offset from aircraft ──
+const CAM_OFFSET = new THREE.Vector3(-30, 8, 0);
+
+// ════════════════════════════════════════
+//  IMU STATE
+// ════════════════════════════════════════
+let ax=0, ay=0, az=9.81, gx=0, gy=0, gz=0, mx=0, my=0, mz=0, temp=25;
+let cfRoll=0, cfPitch=0, yawAngle=0;
+let heading = 0;
+const CF = 0.96;
+
+let demoMode = false;
+let demoT = 0;
+let serialBuf = '';
+
+function updateCF(dt) {
+  const aRoll  = Math.atan2(ay, az) * 180/Math.PI;
+  const aPitch = Math.atan2(-ax, Math.sqrt(ay*ay+az*az)) * 180/Math.PI;
+  cfRoll  = CF*(cfRoll  + gx*dt*180/Math.PI) + (1-CF)*aRoll;
+  cfPitch = CF*(cfPitch + gy*dt*180/Math.PI) + (1-CF)*aPitch;
+  yawAngle += gz * dt * 180/Math.PI;
+
+  const cosR=Math.cos(cfRoll*Math.PI/180), sinR=Math.sin(cfRoll*Math.PI/180);
+  const cosP=Math.cos(cfPitch*Math.PI/180), sinP=Math.sin(cfPitch*Math.PI/180);
+  const mx2 = mx*cosP + mz*sinP;
+  const my2 = mx*sinR*sinP + my*cosR - mz*sinR*cosP;
+  heading = (Math.atan2(-my2, mx2)*180/Math.PI + 360) % 360;
+}
+
+// ── Demo ──
+function runDemo() {
+  demoT += 0.016;
+  const p = demoT * 0.25;
+  ax = 1.5*Math.sin(p*1.1);
+  ay = 1.2*Math.cos(p*0.8);
+  az = 9.81 - 0.3*Math.abs(Math.sin(p));
+  gx = 0.1*Math.cos(p*1.1);
+  gy = -0.08*Math.sin(p*0.8);
+  gz = 0.04*Math.sin(p*0.3);
+  mx = 25*Math.cos(demoT*0.15);
+  my = 25*Math.sin(demoT*0.15);
+  mz = 40;
+  temp = 25 + 0.3*Math.sin(demoT*0.04);
+  updateCF(0.016);
+}
+
+// ════════════════════════════════════════
+//  RENDER LOOP
+// ════════════════════════════════════════
+const euler = new THREE.Euler();
+const quat  = new THREE.Quaternion();
+
+let lastTime = performance.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = Math.min((now - lastTime)/1000, 0.05);
+  lastTime = now;
+
+  if (demoMode) runDemo();
+
+  // Apply IMU orientation to aircraft
+  // Roll = Z, Pitch = Y (in aircraft body frame mapped to scene)
+  euler.set(
+    cfPitch * Math.PI/180,   // pitch: nose up/down
+    -yawAngle * Math.PI/180, // yaw: heading
+    -cfRoll  * Math.PI/180,  // roll: bank
+    'ZYX'
+  );
+  aircraft.rotation.copy(euler);
+
+  // Move aircraft slowly forward (simulate flight)
+  const fwd = new THREE.Vector3(1,0,0).applyEuler(euler);
+  aircraft.position.addScaledVector(fwd, 8 * dt);
+
+  // Wrap aircraft position so it never flies off forever
+  if (aircraft.position.length() > 1500) aircraft.position.set(0,0,0);
+
+  // Camera follows aircraft from behind/above
+  const camTarget = aircraft.position.clone().add(
+    CAM_OFFSET.clone().applyEuler(new THREE.Euler(0, -yawAngle*Math.PI/180, 0, 'YXZ'))
+  );
+  camera.position.lerp(camTarget, 0.05);
+  camera.lookAt(aircraft.position);
+
+  // Sky color based on pitch (nose up = darker)
+  const pitchFactor = Math.max(0, Math.min(1, (cfPitch + 30) / 60));
+  renderer.setClearColor(new THREE.Color(
+    0.2 + 0.35*pitchFactor,
+    0.4 + 0.4*pitchFactor,
+    0.5 + 0.45*pitchFactor
+  ));
+
+  renderer.render(scene, camera);
+  updateHUD();
+}
+
+function updateHUD() {
+  const accelMag = Math.sqrt(ax*ax+ay*ay+az*az);
+  document.getElementById('v-roll').textContent  = cfRoll.toFixed(1)+'°';
+  document.getElementById('v-pitch').textContent = cfPitch.toFixed(1)+'°';
+  document.getElementById('v-hdg').textContent   = String(Math.round(heading)%360).padStart(3,'0')+'°';
+  document.getElementById('v-ax').textContent    = ax.toFixed(2);
+  document.getElementById('v-ay').textContent    = ay.toFixed(2);
+  document.getElementById('v-az').textContent    = az.toFixed(2);
+  document.getElementById('v-gx').textContent    = gx.toFixed(3);
+  document.getElementById('v-gy').textContent    = gy.toFixed(3);
+  document.getElementById('v-gz').textContent    = gz.toFixed(3);
+  document.getElementById('v-temp').textContent  = temp.toFixed(1)+'°C';
+  document.getElementById('v-g').textContent     = accelMag.toFixed(2);
+  document.getElementById('v-mx').textContent    = mx.toFixed(1);
+}
+
+animate();
+
+// ════════════════════════════════════════
+//  SERIAL
+// ════════════════════════════════════════
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    setStatus('Need Chrome or Edge for Web Serial'); return;
+  }
+  try {
+    setStatus('Select your Arduino port...');
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    document.getElementById('overlay').style.display = 'none';
+    setStatus('Connected!');
+    const reader = port.readable.getReader();
+    const dec = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      serialBuf += dec.decode(value);
+      let nl;
+      while ((nl = serialBuf.indexOf('\n')) !== -1) {
+        parseLine(serialBuf.slice(0, nl).trim());
+        serialBuf = serialBuf.slice(nl+1);
+      }
+    }
+  } catch(e) { setStatus('Error: ' + e.message); }
+}
+
+function parseLine(line) {
+  if (!line || line.includes('_') || line.includes('ERR')) return;
+  const p = line.split(',');
+  if (p.length < 10) return;
+  ax=+p[0]; ay=+p[1]; az=+p[2];
+  gx=+p[3]; gy=+p[4]; gz=+p[5];
+  mx=+p[6]; my=+p[7]; mz=+p[8];
+  temp=+p[9];
+  updateCF(0.05);
+}
+
+function startDemo() {
+  demoMode = true;
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('demo-tag').style.display = 'block';
+}
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+</script>
+</body>
+</html>
