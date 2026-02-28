@@ -28,8 +28,6 @@ void loop() {
   sensors_event_t accel, gyro, mag, temp;
   icm.getEvent(&accel, &gyro, &temp, &mag);
 
-  // Output compact CSV for the flight simulator to parse:
-  // AX,AY,AZ,GX,GY,GZ,MX,MY,MZ,TEMP
   Serial.print(accel.acceleration.x, 3); Serial.print(",");
   Serial.print(accel.acceleration.y, 3); Serial.print(",");
   Serial.print(accel.acceleration.z, 3); Serial.print(",");
