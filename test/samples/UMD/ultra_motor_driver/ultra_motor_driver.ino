@@ -33,8 +33,7 @@ void loop() {
   double distance = distances[0];
 
   Serial.print("Distance: ");
-  Serial.print(distance);
-  Serial.println(" cm");
+  Serial.println(distance);
 
   if (distance > 30 && distance < 400) {
     motor1.drive(255);
@@ -44,5 +43,5 @@ void loop() {
     motor2.brake();
   }
 
-  delay(150);
+  delay(25);  // better timing
 }
